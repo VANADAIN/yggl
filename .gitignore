@@ -44,6 +44,9 @@ coverage/
 # Internal research/planning docs (not for repo)
 docs-internal/
 
+# Runtime daemon data (keys, generated configs)
+.yggl/
+
 # OS
 .DS_Store
 Thumbs.db
