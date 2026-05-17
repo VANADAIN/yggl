@@ -1,0 +1,15 @@
+{
+	"name": "yggl-darwin-arm64",
+	"version": "0.1.0",
+	"description": "yggstack binary for macOS ARM64 (Apple Silicon)",
+	"os": [
+		"darwin"
+	],
+	"cpu": [
+		"arm64"
+	],
+	"files": [
+		"bin/"
+	],
+	"scripts": {}
+}

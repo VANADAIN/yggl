@@ -1,0 +1,15 @@
+{
+	"name": "yggl-linux-arm64",
+	"version": "0.1.0",
+	"description": "yggstack binary for Linux ARM64",
+	"os": [
+		"linux"
+	],
+	"cpu": [
+		"arm64"
+	],
+	"files": [
+		"bin/"
+	],
+	"scripts": {}
+}

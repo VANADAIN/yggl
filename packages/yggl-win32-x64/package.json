@@ -1,0 +1,15 @@
+{
+	"name": "yggl-win32-x64",
+	"version": "0.1.0",
+	"description": "yggstack binary for Windows x64",
+	"os": [
+		"win32"
+	],
+	"cpu": [
+		"x64"
+	],
+	"files": [
+		"bin/"
+	],
+	"scripts": {}
+}
