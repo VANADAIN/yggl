@@ -84,7 +84,7 @@ export function resolveBinary(mode: DaemonMode = 'auto', deps: BinaryResolverDep
 		const path = findBundled(pkgName, binaryName)
 		if (!path) {
 			throw new BinaryNotFoundError(
-				`Bundled yggstack not found. Install the platform package:\n` + `  npm install ${pkgName}`,
+				`Bundled yggstack not found. Install the platform package:\n  npm install ${pkgName}`,
 			)
 		}
 		return path

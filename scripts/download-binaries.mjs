@@ -5,11 +5,11 @@
  * Run (specific platform only): node scripts/download-binaries.mjs darwin-arm64
  */
 
-import { createWriteStream, mkdirSync, chmodSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { pipeline } from 'node:stream/promises'
+import { chmodSync, createWriteStream, existsSync, mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import { fileURLToPath } from 'node:url'
 
 const YGGSTACK_VERSION = '1.0.5'
 const REPO = 'yggdrasil-network/yggstack'
@@ -68,9 +68,7 @@ async function downloadPlatform(platformKey) {
 }
 
 const filter = process.argv[2]
-const targets = filter
-	? Object.keys(PLATFORMS).filter((k) => k === filter)
-	: Object.keys(PLATFORMS)
+const targets = filter ? Object.keys(PLATFORMS).filter((k) => k === filter) : Object.keys(PLATFORMS)
 
 if (targets.length === 0) {
 	console.error(`Unknown platform: ${filter}`)
