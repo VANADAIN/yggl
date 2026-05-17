@@ -1,0 +1,63 @@
+# Claude Code
+CLAUDE.md
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+lib/
+*.tsbuildinfo
+
+# npm packaging
+*.tgz
+package-lock.json
+.npm/
+.npmrc.local
+
+# pnpm
+.pnpm-store/
+pnpm-debug.log
+
+# Bun
+bun.lockb
+.bun/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Config overrides
+*.local
+*.conf
+
+# Internal research/planning docs (not for repo)
+docs-internal/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+pids/
+*.pid
+
+# Temp
+tmp/
+temp/
+.cache/
