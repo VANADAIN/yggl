@@ -4,6 +4,9 @@ CLAUDE.md
 # Dependencies
 node_modules/
 
+# Downloaded yggstack binaries (populated by scripts/download-binaries.mjs)
+packages/yggl-*/bin/
+
 # Build output
 dist/
 build/
