@@ -1,0 +1,41 @@
+{
+	"name": "yggl",
+	"version": "0.1.0",
+	"description": "Shared developer environment over Yggdrasil network",
+	"type": "module",
+	"engines": {
+		"node": ">=18"
+	},
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"bin": {
+		"yggl": "./dist/cli.js"
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsup",
+		"dev": "tsup --watch",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "tsc --noEmit"
+	},
+	"optionalDependencies": {
+		"yggl-darwin-arm64": "workspace:*",
+		"yggl-darwin-x64": "workspace:*",
+		"yggl-linux-arm64": "workspace:*",
+		"yggl-linux-x64": "workspace:*",
+		"yggl-win32-x64": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "^25.8.0",
+		"tsup": "^8.4.0",
+		"typescript": "^5.8.3",
+		"vitest": "^3.1.4"
+	}
+}
