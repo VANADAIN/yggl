@@ -4,7 +4,7 @@
 	"description": "Shared developer environment over Yggdrasil network",
 	"type": "module",
 	"engines": {
-		"node": ">=18"
+		"node": ">=22.13"
 	},
 	"exports": {
 		".": {
