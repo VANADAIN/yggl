@@ -28,6 +28,7 @@ export interface ConnectResult {
 export interface ConnectManagerDeps extends DetectionDeps {
 	spawnProcess?: (binaryPath: string, args: string[]) => ChildProcess
 	confPath?: string
+	runtimeConfPath?: string
 }
 
 export function parseConnectTarget(target: string): { address: string; port: number } {
@@ -108,7 +109,7 @@ export class ConnectManager {
 
 		const base = parseYggstackConfig(readFileSync(confPath, 'utf8'))
 		const merged = mergeYggstackConfig(base, config)
-		const runtimeConf = join(YGGL_DIR, 'yggstack.runtime.conf')
+		const runtimeConf = deps.runtimeConfPath ?? join(YGGL_DIR, 'yggstack.runtime.conf')
 		writeFileSync(runtimeConf, JSON.stringify(merged, null, '\t'), 'utf8')
 
 		const spawnFn =
@@ -120,7 +121,7 @@ export class ConnectManager {
 			'-useconffile',
 			runtimeConf,
 			'-local-tcp',
-			`${localPort}:${remoteAddress}:${remotePort}`,
+			`${localPort}:[${remoteAddress}]:${remotePort}`,
 		])
 		this.proc.stdout?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
 		this.proc.stderr?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
