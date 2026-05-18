@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
 		daemonStop: vi.fn(),
 		initYggstackConf: vi.fn(),
 		loadConfig: vi.fn(),
+		prepareRuntimeProject: vi.fn(),
 		shareStart: vi.fn(),
 		shareStop: vi.fn(),
 		spinnerStart: vi.fn(),
@@ -42,6 +43,14 @@ vi.mock('../daemon.js', async () => {
 		detectDaemon: mocks.daemonDetect,
 		initYggstackConf: mocks.initYggstackConf,
 		DaemonManager: MockDaemonManager,
+	}
+})
+
+vi.mock('../workspace.js', async () => {
+	const actual = await vi.importActual<typeof import('../workspace.js')>('../workspace.js')
+	return {
+		...actual,
+		prepareRuntimeProject: mocks.prepareRuntimeProject,
 	}
 })
 
@@ -101,12 +110,13 @@ vi.mock('../ui.js', async () => {
 })
 
 import { runConnect, runInit, runShare, runStart } from '../commands.js'
+import { resolveProjectPaths } from '../workspace.js'
 
 const CONFIG = {
 	daemon: 'auto',
 	peers: [],
 	autoDiscover: true,
-	auth: { enabled: false, token: '' },
+	auth: { enabled: false },
 	adminSocket: { host: 'localhost', port: 9001 },
 }
 
@@ -119,6 +129,8 @@ describe('commands orchestration', () => {
 		mkdirSync(tmpDir, { recursive: true })
 		origCwd = process.cwd()
 		process.chdir(tmpDir)
+		process.env.XDG_CONFIG_HOME = join(tmpDir, '.config')
+		process.env.XDG_STATE_HOME = join(tmpDir, '.state')
 		process.removeAllListeners('SIGINT')
 		process.removeAllListeners('SIGTERM')
 		vi.restoreAllMocks()
@@ -138,6 +150,7 @@ describe('commands orchestration', () => {
 		mocks.spinnerStart.mockReset()
 		mocks.spinnerStop.mockReset()
 		mocks.writeDefaultConfig.mockReset()
+		mocks.prepareRuntimeProject.mockReset()
 
 		mocks.loadConfig.mockReturnValue(CONFIG)
 		mocks.daemonDetect.mockResolvedValue({ adopted: false, binaryPath: '/fake/yggstack' })
@@ -155,29 +168,36 @@ describe('commands orchestration', () => {
 			token: 'tok',
 		})
 		mocks.connectStart.mockResolvedValue({ localPort: 8080 })
+		mocks.prepareRuntimeProject.mockImplementation(async (_config, configPath = 'cfg.json') => {
+			const paths = resolveProjectPaths(configPath)
+			return {
+				...paths,
+				confPath: paths.globalIdentityPath,
+				identityMode: 'global',
+				localSettings: {},
+				detection: { adopted: false, binaryPath: '/fake/yggstack' },
+			}
+		})
 	})
 
 	afterEach(() => {
 		process.chdir(origCwd)
+		delete process.env.XDG_CONFIG_HOME
+		delete process.env.XDG_STATE_HOME
 		process.removeAllListeners('SIGINT')
 		process.removeAllListeners('SIGTERM')
 		rmSync(tmpDir, { recursive: true, force: true })
 	})
 
-	it('runInit writes config and initializes keys', async () => {
+	it('runInit writes config without generating identity', async () => {
 		await runInit('cfg.json')
 
 		expect(mocks.writeDefaultConfig).toHaveBeenCalledWith('cfg.json')
-		expect(mocks.daemonDetect).toHaveBeenCalledWith(CONFIG)
-		expect(mocks.initYggstackConf).toHaveBeenCalledWith('/fake/yggstack')
+		expect(mocks.daemonDetect).not.toHaveBeenCalled()
+		expect(mocks.initYggstackConf).not.toHaveBeenCalled()
 		expect(mocks.spinnerStart).toHaveBeenCalled()
 		expect(mocks.spinnerStop).toHaveBeenCalled()
 		expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Config:'))
-	})
-
-	it('runInit rejects if daemon is already running', async () => {
-		mocks.daemonDetect.mockResolvedValue({ adopted: true })
-		await expect(runInit('cfg.json')).rejects.toThrow('A daemon is already running')
 	})
 
 	it('runStart prints status, writes pid, and cleans up on SIGINT', async () => {
@@ -185,7 +205,8 @@ describe('commands orchestration', () => {
 		await vi.waitFor(() =>
 			expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Yggdrasil is running')),
 		)
-		expect(readFileSync(join('.yggl', 'yggl.pid'), 'utf8').trim()).toBe(String(process.pid))
+		const pidPath = resolveProjectPaths('cfg.json').pidPath
+		expect(readFileSync(pidPath, 'utf8').trim()).toBe(String(process.pid))
 
 		process.emit('SIGINT')
 		await vi.waitFor(() => expect(mocks.daemonStop).toHaveBeenCalled())
@@ -194,14 +215,23 @@ describe('commands orchestration', () => {
 	it('runShare prints URL and token, writes pid, and cleans up on SIGTERM', async () => {
 		void runShare({ port: 3000, auth: true, token: 'tok', allow: 'k1,k2', config: 'cfg.json' })
 		await vi.waitFor(() =>
-			expect(mocks.shareStart).toHaveBeenCalledWith(CONFIG, {
-				port: 3000,
-				auth: true,
-				token: 'tok',
-				allowKeys: ['k1', 'k2'],
-			}),
+			expect(mocks.shareStart).toHaveBeenCalledWith(
+				CONFIG,
+				{
+					port: 3000,
+					auth: true,
+					token: 'tok',
+					allowKeys: ['k1', 'k2'],
+				},
+				{
+					confPath: resolveProjectPaths('cfg.json').globalIdentityPath,
+					runtimeConfPath: resolveProjectPaths('cfg.json').runtimeConfPath,
+				},
+			),
 		)
-		expect(readFileSync(join('.yggl', 'yggl.pid'), 'utf8').trim()).toBe(String(process.pid))
+		expect(readFileSync(resolveProjectPaths('cfg.json').pidPath, 'utf8').trim()).toBe(
+			String(process.pid),
+		)
 		expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Sharing port 3000'))
 		expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Token:'))
 
@@ -212,11 +242,18 @@ describe('commands orchestration', () => {
 	it('runConnect parses target and prints forwarding info', async () => {
 		void runConnect({ target: '[200:abcd::1]:9000', localPort: 8080, config: 'cfg.json' })
 		await vi.waitFor(() =>
-			expect(mocks.connectStart).toHaveBeenCalledWith(CONFIG, {
-				remoteAddress: '200:abcd::1',
-				remotePort: 9000,
-				localPort: 8080,
-			}),
+			expect(mocks.connectStart).toHaveBeenCalledWith(
+				CONFIG,
+				{
+					remoteAddress: '200:abcd::1',
+					remotePort: 9000,
+					localPort: 8080,
+				},
+				{
+					confPath: resolveProjectPaths('cfg.json').globalIdentityPath,
+					runtimeConfPath: resolveProjectPaths('cfg.json').runtimeConfPath,
+				},
+			),
 		)
 		expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Port forwarding active'))
 

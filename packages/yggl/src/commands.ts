@@ -1,23 +1,33 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { AdminClient } from './admin.js'
 import type { YgglConfig } from './config.js'
 import { CONFIG_FILENAME, DEFAULT_PEERS, loadConfig, writeDefaultConfig } from './config.js'
 import { ConnectManager, parseConnectTarget } from './connect.js'
-import { DaemonManager, detectDaemon, initYggstackConf, YGGL_DIR } from './daemon.js'
+import { DaemonManager } from './daemon.js'
 import { ShareManager } from './share.js'
 import { c, formatBytes, formatUptime, Spinner } from './ui.js'
+import {
+	getLocalProjectValue,
+	type IdentityMode,
+	type LocalProjectValueKey,
+	listLocalProjectValues,
+	maskSecret,
+	prepareRuntimeProject,
+	readLocalProjectSettings,
+	resolveProjectPaths,
+	setLocalProjectValue,
+	unsetLocalProjectValue,
+} from './workspace.js'
 
-const PID_FILE = join(YGGL_DIR, 'yggl.pid')
-
-function writePid(): void {
-	mkdirSync(YGGL_DIR, { recursive: true })
-	writeFileSync(PID_FILE, String(process.pid), 'utf8')
+function writePid(pidPath: string): void {
+	mkdirSync(dirname(pidPath), { recursive: true })
+	writeFileSync(pidPath, String(process.pid), 'utf8')
 }
 
-function removePid(): void {
+function removePid(pidPath: string): void {
 	try {
-		rmSync(PID_FILE)
+		rmSync(pidPath)
 	} catch {}
 }
 
@@ -84,22 +94,48 @@ async function runPersistentCommand(
 	})
 }
 
+function resolveAuthToken(localToken?: string): string | undefined {
+	return process.env.YGGL_AUTH_TOKEN || localToken
+}
+
+function normalizeIdentityMode(value?: string): IdentityMode {
+	if (value === 'global' || value === 'project') return value
+	throw new Error('identity-mode must be one of: global, project')
+}
+
+function normalizeLocalKey(key: string): LocalProjectValueKey {
+	if (key === 'auth-token' || key === 'identity-mode') return key
+	throw new Error('Unsupported local key. Supported keys: auth-token, identity-mode')
+}
+
+function readRawConfig(configPath: string): Record<string, unknown> {
+	if (!existsSync(configPath)) return {}
+	try {
+		return JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+	} catch {
+		throw new Error(`Failed to parse config file: ${configPath}`)
+	}
+}
+
+function writeRawConfig(configPath: string, raw: Record<string, unknown>): void {
+	writeFileSync(configPath, JSON.stringify(raw, null, '\t'), 'utf8')
+}
+
+async function resolveRuntimeProject(configPath: string | undefined, config: YgglConfig) {
+	return prepareRuntimeProject(config, configPath ?? CONFIG_FILENAME)
+}
+
 // ── init ─────────────────────────────────────────────────────────────────────
 
 export async function runInit(configPath = CONFIG_FILENAME): Promise<void> {
 	await withSpinner('Initializing yggl...', async (spinner) => {
 		writeDefaultConfig(configPath)
-		const config = loadConfig(configPath)
-		const detection = await detectDaemon(config)
-		if (detection.adopted) {
-			stopSpinner(spinner)
-			throw new Error('A daemon is already running — stop it before running init')
-		}
-		initYggstackConf(detection.binaryPath)
+		const paths = resolveProjectPaths(configPath)
 		stopSpinner(spinner)
-		console.log(c.green(`✓ Config:  ${resolve(configPath)}`))
-		console.log(c.green(`✓ Keys:    ${resolve(join(YGGL_DIR, 'yggstack.conf'))}`))
-		console.log(c.dim('\nRun `yggl start` to connect to the Yggdrasil network.'))
+		console.log(c.green(`✓ Config:         ${resolve(configPath)}`))
+		console.log(c.green(`✓ Local settings: ${paths.localSettingsPath}`))
+		console.log(c.green(`✓ Runtime state:  ${paths.runtimeDir}`))
+		console.log(c.dim('\nIdentity will be created automatically on first start/share/connect.'))
 	})
 }
 
@@ -107,16 +143,20 @@ export async function runInit(configPath = CONFIG_FILENAME): Promise<void> {
 
 export async function runStart(configPath = CONFIG_FILENAME): Promise<never> {
 	const config = loadConfig(configPath)
+	const runtime = await resolveRuntimeProject(configPath, config)
 	const daemon = new DaemonManager()
 
 	const cleanup = async () => {
-		removePid()
+		removePid(runtime.pidPath)
 		if (daemon.source && daemon.source !== 'adopted') await daemon.stop()
 	}
 
 	return runPersistentCommand('Starting Yggdrasil daemon...', cleanup, async () => {
-		const source = await daemon.start(config)
-		writePid()
+		const source = await daemon.start(config, {
+			confPath: runtime.confPath,
+			runtimeConfPath: runtime.runtimeConfPath,
+		})
+		writePid(runtime.pidPath)
 
 		const client = new AdminClient(config)
 		const self = await client.getSelf()
@@ -124,6 +164,7 @@ export async function runStart(configPath = CONFIG_FILENAME): Promise<never> {
 		console.log(c.bold('\nYggdrasil is running\n'))
 		console.log(`  ${c.dim('Address:')} ${c.cyan(self.address)}`)
 		console.log(`  ${c.dim('Source: ')} ${source}`)
+		console.log(`  ${c.dim('Identity:')} ${runtime.identityMode}`)
 		if (self.buildName) console.log(`  ${c.dim('Build:  ')} ${self.buildName} ${self.buildVersion}`)
 		console.log(c.dim('\nPress Ctrl+C to stop\n'))
 	})
@@ -133,7 +174,7 @@ export async function runStart(configPath = CONFIG_FILENAME): Promise<never> {
 
 export interface ShareCommandOptions {
 	port: number
-	auth: boolean
+	auth?: boolean
 	token?: string
 	allow?: string
 	config?: string
@@ -141,31 +182,42 @@ export interface ShareCommandOptions {
 
 export async function runShare(opts: ShareCommandOptions): Promise<never> {
 	const config = loadConfig(opts.config)
+	const runtime = await resolveRuntimeProject(opts.config, config)
 	const mgr = new ShareManager()
 	const allowKeys = parseAllowKeys(opts.allow)
+	const authEnabled = opts.auth ?? config.auth.enabled
+	const token = opts.token ?? resolveAuthToken(runtime.localSettings.authToken)
 
 	const cleanup = async () => {
-		removePid()
+		removePid(runtime.pidPath)
 		await mgr.stop()
 	}
 
 	return runPersistentCommand(`Sharing port ${opts.port}...`, cleanup, async () => {
-		const result = await mgr.start(config, {
-			port: opts.port,
-			auth: opts.auth,
-			...(opts.token ? { token: opts.token } : {}),
-			allowKeys,
-		})
-		writePid()
+		const result = await mgr.start(
+			config,
+			{
+				port: opts.port,
+				auth: authEnabled,
+				...(authEnabled && token ? { token } : {}),
+				allowKeys,
+			},
+			{
+				confPath: runtime.confPath,
+				runtimeConfPath: runtime.runtimeConfPath,
+			},
+		)
+		writePid(runtime.pidPath)
 
 		console.log(c.bold(`\nSharing port ${opts.port} over Yggdrasil\n`))
-		console.log(`  ${c.dim('URL:  ')} ${c.cyan(result.url)}`)
+		console.log(`  ${c.dim('URL:     ')} ${c.cyan(result.url)}`)
+		console.log(`  ${c.dim('Identity:')} ${runtime.identityMode}`)
 		if (result.token) {
-			console.log(`  ${c.dim('Token:')} ${c.yellow(result.token)}`)
-			console.log(c.dim('        Set Authorization: Bearer <token> on requests'))
+			console.log(`  ${c.dim('Token:   ')} ${c.yellow(result.token)}`)
+			console.log(c.dim('           Set Authorization: Bearer <token> on requests'))
 		}
 		if (allowKeys.length > 0) {
-			console.log(`  ${c.dim('Allow:')} ${allowKeys.join(', ')}`)
+			console.log(`  ${c.dim('Allow:   ')} ${allowKeys.join(', ')}`)
 		}
 		console.log(c.dim('\nPress Ctrl+C to stop\n'))
 	})
@@ -183,17 +235,26 @@ export async function runConnect(opts: ConnectCommandOptions): Promise<never> {
 	const { address, port: remotePort } = parseConnectTarget(opts.target)
 	const localPort = opts.localPort ?? remotePort
 	const config = loadConfig(opts.config)
+	const runtime = await resolveRuntimeProject(opts.config, config)
 	const mgr = new ConnectManager()
 
 	return runPersistentCommand(
 		`Connecting to [${address}]:${remotePort}...`,
 		() => mgr.stop(),
 		async () => {
-			const result = await mgr.start(config, { remoteAddress: address, remotePort, localPort })
+			const result = await mgr.start(
+				config,
+				{ remoteAddress: address, remotePort, localPort },
+				{
+					confPath: runtime.confPath,
+					runtimeConfPath: runtime.runtimeConfPath,
+				},
+			)
 
 			console.log(c.bold('\nPort forwarding active\n'))
-			console.log(`  ${c.dim('Local: ')} ${c.cyan(`localhost:${result.localPort}`)}`)
-			console.log(`  ${c.dim('Remote:')} [${address}]:${remotePort}`)
+			console.log(`  ${c.dim('Local:   ')} ${c.cyan(`localhost:${result.localPort}`)}`)
+			console.log(`  ${c.dim('Remote:  ')} [${address}]:${remotePort}`)
+			console.log(`  ${c.dim('Identity:')} ${runtime.identityMode}`)
 			console.log(c.dim('\nPress Ctrl+C to stop\n'))
 		},
 	)
@@ -257,19 +318,6 @@ export async function runStatus(
 
 // ── peers ────────────────────────────────────────────────────────────────────
 
-function readRawConfig(configPath: string): Record<string, unknown> {
-	if (!existsSync(configPath)) return {}
-	try {
-		return JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
-	} catch {
-		throw new Error(`Failed to parse config file: ${configPath}`)
-	}
-}
-
-function writeRawConfig(configPath: string, raw: Record<string, unknown>): void {
-	writeFileSync(configPath, JSON.stringify(raw, null, '\t'), 'utf8')
-}
-
 export async function runPeersAdd(configPath = CONFIG_FILENAME, uri: string): Promise<void> {
 	const raw = readRawConfig(configPath)
 	const peers: string[] = Array.isArray(raw.peers) ? (raw.peers as string[]) : [...DEFAULT_PEERS]
@@ -306,30 +354,132 @@ export async function runPeersList(configPath = CONFIG_FILENAME): Promise<void> 
 	}
 }
 
+// ── local ────────────────────────────────────────────────────────────────────
+
+export async function runLocalSet(
+	key: string,
+	value: string,
+	configPath = CONFIG_FILENAME,
+): Promise<void> {
+	const paths = resolveProjectPaths(configPath)
+	const normalizedKey = normalizeLocalKey(key)
+	const normalizedValue = normalizedKey === 'identity-mode' ? normalizeIdentityMode(value) : value
+
+	setLocalProjectValue(paths, normalizedKey, normalizedValue)
+	console.log(c.green(`✓ Set local ${normalizedKey} for ${paths.projectId}`))
+}
+
+export async function runLocalGet(
+	key: string,
+	configPath = CONFIG_FILENAME,
+	showSecret = false,
+): Promise<void> {
+	const paths = resolveProjectPaths(configPath)
+	const normalizedKey = normalizeLocalKey(key)
+	const value = getLocalProjectValue(paths, normalizedKey)
+
+	if (!value) {
+		console.log(c.yellow(`⚠  No local value set for ${normalizedKey}`))
+		return
+	}
+
+	if (normalizedKey === 'auth-token' && !showSecret) {
+		console.log(maskSecret(value))
+		return
+	}
+
+	console.log(value)
+}
+
+export async function runLocalUnset(key: string, configPath = CONFIG_FILENAME): Promise<void> {
+	const paths = resolveProjectPaths(configPath)
+	const normalizedKey = normalizeLocalKey(key)
+	unsetLocalProjectValue(paths, normalizedKey)
+	console.log(c.green(`✓ Removed local ${normalizedKey} for ${paths.projectId}`))
+}
+
+export async function runLocalList(configPath = CONFIG_FILENAME): Promise<void> {
+	const paths = resolveProjectPaths(configPath)
+	const values = listLocalProjectValues(paths)
+
+	if (values.length === 0) {
+		console.log(c.dim('No local values set for this project'))
+		return
+	}
+
+	for (const entry of values) {
+		const renderedValue = entry.key === 'auth-token' ? maskSecret(entry.value) : entry.value
+		console.log(`${entry.key}: ${renderedValue}`)
+	}
+}
+
+// ── doctor ───────────────────────────────────────────────────────────────────
+
+export async function runDoctor(configPath = CONFIG_FILENAME): Promise<void> {
+	const paths = resolveProjectPaths(configPath)
+	const localSettings = readLocalProjectSettings(paths)
+	const configExists = existsSync(paths.configPath)
+	const legacyDetected = existsSync(paths.legacyConfPath) || existsSync(paths.legacyPidPath)
+	const identityMode: IdentityMode =
+		localSettings.identityMode ?? (existsSync(paths.projectIdentityPath) ? 'project' : 'global')
+	const activeIdentityPath =
+		identityMode === 'project' ? paths.projectIdentityPath : paths.globalIdentityPath
+	const envToken = process.env.YGGL_AUTH_TOKEN
+	const tokenSource = envToken ? 'shell env' : localSettings.authToken ? 'local store' : 'none'
+
+	console.log(c.bold('\nyggl doctor\n'))
+	console.log(`  ${c.dim('Project config: ')} ${paths.configPath}`)
+	console.log(`  ${c.dim('Config exists:  ')} ${configExists ? c.green('yes') : c.yellow('no')}`)
+	console.log(`  ${c.dim('Project id:    ')} ${paths.projectId}`)
+	console.log(`  ${c.dim('Local settings:')} ${paths.localSettingsPath}`)
+	console.log(`  ${c.dim('Runtime dir:    ')} ${paths.runtimeDir}`)
+	console.log(`  ${c.dim('Identity mode:  ')} ${identityMode}`)
+	console.log(`  ${c.dim('Identity path:  ')} ${activeIdentityPath}`)
+	console.log(
+		`  ${c.dim('Legacy .yggl:   ')} ${legacyDetected ? c.yellow('detected') : c.green('none')}`,
+	)
+	console.log(`  ${c.dim('Auth token:     ')} ${tokenSource}`)
+
+	if (envToken) {
+		console.log(`  ${c.dim('Token value:    ')} ${maskSecret(envToken)}`)
+	} else if (localSettings.authToken) {
+		console.log(`  ${c.dim('Token value:    ')} ${maskSecret(localSettings.authToken)}`)
+	}
+
+	console.log()
+}
+
 // ── stop ─────────────────────────────────────────────────────────────────────
 
-export async function runStop(): Promise<void> {
-	if (!existsSync(PID_FILE)) {
+export async function runStop(configPath = CONFIG_FILENAME): Promise<void> {
+	const paths = resolveProjectPaths(configPath)
+	const pidPath = existsSync(paths.pidPath)
+		? paths.pidPath
+		: existsSync(paths.legacyPidPath)
+			? paths.legacyPidPath
+			: null
+
+	if (!pidPath) {
 		console.log(c.yellow('⚠  No yggl PID file found — is yggl running?'))
 		console.log(c.dim('   If yggl is running in a terminal, press Ctrl+C to stop it.'))
 		return
 	}
 
-	const pid = Number.parseInt(readFileSync(PID_FILE, 'utf8').trim(), 10)
+	const pid = Number.parseInt(readFileSync(pidPath, 'utf8').trim(), 10)
 	if (Number.isNaN(pid)) {
-		rmSync(PID_FILE)
+		rmSync(pidPath)
 		throw new Error('PID file is corrupted — removed it')
 	}
 
 	try {
-		process.kill(pid, 0) // check if alive
+		process.kill(pid, 0)
 	} catch {
-		rmSync(PID_FILE)
+		rmSync(pidPath)
 		console.log(c.yellow(`⚠  Process ${pid} is not running (removed stale PID file)`))
 		return
 	}
 
 	process.kill(pid, 'SIGTERM')
-	rmSync(PID_FILE)
+	rmSync(pidPath)
 	console.log(c.green(`✓ Sent stop signal to yggl process ${pid}`))
 }

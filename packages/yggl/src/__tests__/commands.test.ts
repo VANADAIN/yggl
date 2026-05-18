@@ -2,7 +2,18 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runPeersAdd, runPeersList, runPeersRemove, runStatus, runStop } from '../commands.js'
+import {
+	runDoctor,
+	runLocalGet,
+	runLocalList,
+	runLocalSet,
+	runLocalUnset,
+	runPeersAdd,
+	runPeersList,
+	runPeersRemove,
+	runStatus,
+	runStop,
+} from '../commands.js'
 import { DEFAULT_PEERS } from '../config.js'
 
 let tmpDir: string
@@ -200,18 +211,70 @@ describe('runStatus', () => {
 
 describe('runStop', () => {
 	it('warns when no PID file exists', async () => {
-		// Run from a clean tmpDir where .yggl/yggl.pid does not exist
 		const origCwd = process.cwd()
 		process.chdir(tmpDir)
+		process.env.XDG_STATE_HOME = join(tmpDir, '.state')
+		process.env.XDG_CONFIG_HOME = join(tmpDir, '.config')
 		const lines: string[] = []
 		vi.spyOn(console, 'log').mockImplementation((...args) => lines.push(args.join(' ')))
 
 		try {
-			await runStop()
+			await runStop(join(tmpDir, 'yggl.config.json'))
 		} finally {
+			delete process.env.XDG_STATE_HOME
+			delete process.env.XDG_CONFIG_HOME
 			process.chdir(origCwd)
 		}
 
 		expect(lines.some((l) => l.includes('No yggl PID file'))).toBe(true)
+	})
+})
+
+describe('local commands', () => {
+	it('stores, reads, lists, and removes local auth token values', async () => {
+		const configPath = join(tmpDir, 'yggl.config.json')
+		writeFileSync(configPath, JSON.stringify({}))
+		process.env.XDG_STATE_HOME = join(tmpDir, '.state')
+		process.env.XDG_CONFIG_HOME = join(tmpDir, '.config')
+		const lines: string[] = []
+		vi.spyOn(console, 'log').mockImplementation((...args) => lines.push(args.join(' ')))
+
+		try {
+			await runLocalSet('auth-token', 'secret-token', configPath)
+			await runLocalGet('auth-token', configPath)
+			await runLocalGet('auth-token', configPath, true)
+			await runLocalList(configPath)
+			await runLocalUnset('auth-token', configPath)
+		} finally {
+			delete process.env.XDG_STATE_HOME
+			delete process.env.XDG_CONFIG_HOME
+		}
+
+		expect(lines.some((line) => line.includes('Set local auth-token'))).toBe(true)
+		expect(lines.some((line) => line.includes('se…en'))).toBe(true)
+		expect(lines.some((line) => line.includes('secret-token'))).toBe(true)
+		expect(lines.some((line) => line.includes('Removed local auth-token'))).toBe(true)
+	})
+
+	it('prints doctor information without leaking the raw token from local storage', async () => {
+		const configPath = join(tmpDir, 'yggl.config.json')
+		writeFileSync(configPath, JSON.stringify({}))
+		process.env.XDG_STATE_HOME = join(tmpDir, '.state')
+		process.env.XDG_CONFIG_HOME = join(tmpDir, '.config')
+		const lines: string[] = []
+		vi.spyOn(console, 'log').mockImplementation((...args) => lines.push(args.join(' ')))
+
+		try {
+			await runLocalSet('auth-token', 'secret-token', configPath)
+			await runDoctor(configPath)
+		} finally {
+			delete process.env.XDG_STATE_HOME
+			delete process.env.XDG_CONFIG_HOME
+		}
+
+		expect(lines.some((line) => line.includes('shell env'))).toBe(false)
+		expect(lines.some((line) => line.includes('local store'))).toBe(true)
+		expect(lines.some((line) => line.includes('secret-token'))).toBe(false)
+		expect(lines.some((line) => line.includes('se…en'))).toBe(true)
 	})
 })

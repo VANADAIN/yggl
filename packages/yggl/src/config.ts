@@ -4,7 +4,6 @@ import type { DaemonMode } from './binary.js'
 
 export interface AuthConfig {
 	enabled: boolean
-	token: string
 }
 
 export interface AdminSocketConfig {
@@ -41,7 +40,7 @@ export const DEFAULT_CONFIG: YgglConfig = {
 	daemon: 'auto',
 	peers: DEFAULT_PEERS,
 	autoDiscover: true,
-	auth: { enabled: false, token: '' },
+	auth: { enabled: false },
 	adminSocket: { host: 'localhost', port: 9001 },
 }
 
@@ -52,7 +51,6 @@ function validateAuth(raw: unknown): AuthConfig {
 	const r = raw as Record<string, unknown>
 	return {
 		enabled: typeof r.enabled === 'boolean' ? r.enabled : DEFAULT_CONFIG.auth.enabled,
-		token: typeof r.token === 'string' ? r.token : DEFAULT_CONFIG.auth.token,
 	}
 }
 
@@ -95,10 +93,6 @@ function applyEnvOverrides(config: YgglConfig): YgglConfig {
 
 	if (process.env.YGGL_DAEMON) result.daemon = process.env.YGGL_DAEMON as DaemonMode
 	if (process.env.YGGL_PEERS) result.peers = process.env.YGGL_PEERS.split(',').map((p) => p.trim())
-	if (process.env.YGGL_AUTH_TOKEN) {
-		result.auth.token = process.env.YGGL_AUTH_TOKEN
-		result.auth.enabled = true
-	}
 	if (process.env.YGGL_ADMIN_HOST) result.adminSocket.host = process.env.YGGL_ADMIN_HOST
 	if (process.env.YGGL_ADMIN_PORT) {
 		const port = Number.parseInt(process.env.YGGL_ADMIN_PORT, 10)

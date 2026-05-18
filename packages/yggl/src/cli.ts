@@ -4,7 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { defineCommand, runMain } from 'citty'
 import {
 	runConnect,
+	runDoctor,
 	runInit,
+	runLocalGet,
+	runLocalList,
+	runLocalSet,
+	runLocalUnset,
 	runPeersAdd,
 	runPeersList,
 	runPeersRemove,
@@ -65,7 +70,6 @@ export const main = defineCommand({
 				},
 				auth: {
 					type: 'boolean' as const,
-					default: false,
 					description: 'Enable bearer token authentication',
 				},
 				token: {
@@ -81,8 +85,8 @@ export const main = defineCommand({
 				guard(() =>
 					runShare({
 						port: Number(args.port),
-						auth: args.auth,
 						config: args.config,
+						...(args.auth !== undefined ? { auth: args.auth } : {}),
 						...(args.token ? { token: args.token } : {}),
 						...(args.allow ? { allow: args.allow } : {}),
 					}),
@@ -156,7 +160,71 @@ export const main = defineCommand({
 
 		stop: defineCommand({
 			meta: { description: 'Stop the yggl daemon' },
-			run: guard(() => runStop()),
+			args: configArg,
+			run: ({ args }) => guard(() => runStop(args.config))(),
+		}),
+
+		local: defineCommand({
+			meta: { description: 'Manage local machine-only values for this project' },
+			subCommands: {
+				set: defineCommand({
+					meta: { description: 'Set a local value' },
+					args: {
+						...configArg,
+						key: {
+							type: 'positional' as const,
+							description: 'Local key (auth-token, identity-mode)',
+							required: true,
+						},
+						value: {
+							type: 'positional' as const,
+							description: 'Value to store',
+							required: true,
+						},
+					},
+					run: ({ args }) => guard(() => runLocalSet(args.key, args.value, args.config))(),
+				}),
+				get: defineCommand({
+					meta: { description: 'Get a local value' },
+					args: {
+						...configArg,
+						key: {
+							type: 'positional' as const,
+							description: 'Local key (auth-token, identity-mode)',
+							required: true,
+						},
+						'show-secret': {
+							type: 'boolean' as const,
+							default: false,
+							description: 'Print secret values instead of masked output',
+						},
+					},
+					run: ({ args }) => guard(() => runLocalGet(args.key, args.config, args['show-secret']))(),
+				}),
+				unset: defineCommand({
+					meta: { description: 'Remove a local value' },
+					args: {
+						...configArg,
+						key: {
+							type: 'positional' as const,
+							description: 'Local key (auth-token, identity-mode)',
+							required: true,
+						},
+					},
+					run: ({ args }) => guard(() => runLocalUnset(args.key, args.config))(),
+				}),
+				list: defineCommand({
+					meta: { description: 'List local values for this project' },
+					args: configArg,
+					run: ({ args }) => guard(() => runLocalList(args.config))(),
+				}),
+			},
+		}),
+
+		doctor: defineCommand({
+			meta: { description: 'Show effective paths and local configuration sources' },
+			args: configArg,
+			run: ({ args }) => guard(() => runDoctor(args.config))(),
 		}),
 	},
 })

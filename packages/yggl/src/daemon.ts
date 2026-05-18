@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import { execSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { resolveBinary } from './binary.js'
 import type { YgglConfig } from './config.js'
 import {
@@ -112,6 +112,8 @@ export async function detectDaemon(
 }
 
 export interface DaemonManagerDeps extends DetectionDeps {
+	confPath?: string
+	runtimeConfPath?: string
 	spawnProcess?: SpawnProcess
 }
 
@@ -143,7 +145,7 @@ export class DaemonManager {
 			return 'adopted'
 		}
 
-		const confPath = resolve(YGGSTACK_CONF)
+		const confPath = deps.confPath ?? resolve(YGGSTACK_CONF)
 		if (!existsSync(confPath)) {
 			throw new DaemonError(
 				`yggstack config not found at ${confPath}\nRun \`yggl init\` to generate it.`,
@@ -153,7 +155,7 @@ export class DaemonManager {
 		// Merge runtime settings into stored yggstack config
 		const base = parseYggstackConfig(readFileSync(confPath, 'utf8'))
 		const merged = mergeYggstackConfig(base, config)
-		const runtimeConf = join(YGGL_DIR, 'yggstack.runtime.conf')
+		const runtimeConf = deps.runtimeConfPath ?? join(YGGL_DIR, 'yggstack.runtime.conf')
 		writeFileSync(runtimeConf, JSON.stringify(merged, null, '\t'), 'utf8')
 
 		// Resolve binary
@@ -208,12 +210,13 @@ export class DaemonManager {
 }
 
 export interface InitYggstackConfDeps {
+	confPath?: string
 	runGenconf?: (binaryPath: string) => Buffer
 }
 
 export function initYggstackConf(binaryPath: string, deps: InitYggstackConfDeps = {}): void {
-	mkdirSync(YGGL_DIR, { recursive: true })
-	const confPath = resolve(YGGSTACK_CONF)
+	const confPath = deps.confPath ?? resolve(YGGSTACK_CONF)
+	mkdirSync(dirname(confPath), { recursive: true })
 	if (existsSync(confPath)) {
 		throw new DaemonError(`yggstack config already exists at ${confPath}`)
 	}

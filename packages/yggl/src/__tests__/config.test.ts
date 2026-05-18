@@ -20,13 +20,7 @@ beforeEach(() => {
 afterEach(() => {
 	rmSync(tmpDir, { recursive: true, force: true })
 	// Clean up any env vars set during tests
-	for (const key of [
-		'YGGL_DAEMON',
-		'YGGL_PEERS',
-		'YGGL_AUTH_TOKEN',
-		'YGGL_ADMIN_HOST',
-		'YGGL_ADMIN_PORT',
-	]) {
+	for (const key of ['YGGL_DAEMON', 'YGGL_PEERS', 'YGGL_ADMIN_HOST', 'YGGL_ADMIN_PORT']) {
 		delete process.env[key]
 	}
 })
@@ -48,7 +42,7 @@ describe('validateConfig', () => {
 			daemon: 'bundled',
 			peers: ['tls://example.com:443'],
 			autoDiscover: false,
-			auth: { enabled: true, token: 'secret' },
+			auth: { enabled: true },
 			adminSocket: { host: '127.0.0.1', port: 9002 },
 		}
 		const config = validateConfig(raw)
@@ -56,7 +50,6 @@ describe('validateConfig', () => {
 		expect(config.peers).toEqual(['tls://example.com:443'])
 		expect(config.autoDiscover).toBe(false)
 		expect(config.auth.enabled).toBe(true)
-		expect(config.auth.token).toBe('secret')
 		expect(config.adminSocket.port).toBe(9002)
 	})
 
@@ -116,13 +109,6 @@ describe('loadConfig', () => {
 		process.env.YGGL_PEERS = 'tls://a.com:443,tcp://b.com:80'
 		const config = loadConfig(join(tmpDir, 'missing.json'))
 		expect(config.peers).toEqual(['tls://a.com:443', 'tcp://b.com:80'])
-	})
-
-	it('applies YGGL_AUTH_TOKEN and enables auth', () => {
-		process.env.YGGL_AUTH_TOKEN = 'mytoken'
-		const config = loadConfig(join(tmpDir, 'missing.json'))
-		expect(config.auth.token).toBe('mytoken')
-		expect(config.auth.enabled).toBe(true)
 	})
 
 	it('applies YGGL_ADMIN_PORT env override', () => {

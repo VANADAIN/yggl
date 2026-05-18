@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const commandFns = vi.hoisted(() => ({
+	runDoctor: vi.fn(async () => {}),
 	runConnect: vi.fn(async () => {}),
 	runInit: vi.fn(async () => {}),
+	runLocalGet: vi.fn(async () => {}),
+	runLocalList: vi.fn(async () => {}),
+	runLocalSet: vi.fn(async () => {}),
+	runLocalUnset: vi.fn(async () => {}),
 	runPeersAdd: vi.fn(async () => {}),
 	runPeersList: vi.fn(async () => {}),
 	runPeersRemove: vi.fn(async () => {}),
@@ -105,10 +110,10 @@ describe('cli command wiring', () => {
 
 	it('wires status and stop commands', async () => {
 		await getCommand(cli.subCommands.status, 'status').run({ args: { config: 'cfg.json' } })
-		await getCommand(cli.subCommands.stop, 'stop').run()
+		await getCommand(cli.subCommands.stop, 'stop').run({ args: { config: 'cfg.json' } })
 
 		expect(commandFns.runStatus).toHaveBeenCalledWith('cfg.json')
-		expect(commandFns.runStop).toHaveBeenCalled()
+		expect(commandFns.runStop).toHaveBeenCalledWith('cfg.json')
 	})
 
 	it('wires peers subcommands', async () => {
@@ -126,5 +131,28 @@ describe('cli command wiring', () => {
 		expect(commandFns.runPeersList).toHaveBeenCalledWith('cfg.json')
 		expect(commandFns.runPeersAdd).toHaveBeenCalledWith('cfg.json', 'tls://peer:443')
 		expect(commandFns.runPeersRemove).toHaveBeenCalledWith('cfg.json', 'tls://peer:443')
+	})
+
+	it('wires local subcommands and doctor', async () => {
+		const localCommand = getCommand(cli.subCommands.local, 'local')
+		const local = (localCommand.subCommands ?? {}) as Record<string, TestCommand>
+
+		await getCommand(local.set, 'local.set').run({
+			args: { config: 'cfg.json', key: 'auth-token', value: 'secret' },
+		})
+		await getCommand(local.get, 'local.get').run({
+			args: { config: 'cfg.json', key: 'auth-token', 'show-secret': true },
+		})
+		await getCommand(local.unset, 'local.unset').run({
+			args: { config: 'cfg.json', key: 'auth-token' },
+		})
+		await getCommand(local.list, 'local.list').run({ args: { config: 'cfg.json' } })
+		await getCommand(cli.subCommands.doctor, 'doctor').run({ args: { config: 'cfg.json' } })
+
+		expect(commandFns.runLocalSet).toHaveBeenCalledWith('auth-token', 'secret', 'cfg.json')
+		expect(commandFns.runLocalGet).toHaveBeenCalledWith('auth-token', 'cfg.json', true)
+		expect(commandFns.runLocalUnset).toHaveBeenCalledWith('auth-token', 'cfg.json')
+		expect(commandFns.runLocalList).toHaveBeenCalledWith('cfg.json')
+		expect(commandFns.runDoctor).toHaveBeenCalledWith('cfg.json')
 	})
 })
