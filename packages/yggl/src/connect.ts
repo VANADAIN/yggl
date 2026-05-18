@@ -1,11 +1,16 @@
 import type { ChildProcess } from 'node:child_process'
-import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { join, resolve } from 'node:path'
 import type { YgglConfig } from './config.js'
 import type { DetectionDeps } from './daemon.js'
 import { detectDaemon, YGGL_DIR, YGGSTACK_CONF } from './daemon.js'
+import {
+	createSpawnProcess,
+	forwardChildOutput,
+	type SpawnProcess,
+	stopChildProcess,
+} from './process-utils.js'
 import { mergeYggstackConfig, parseYggstackConfig } from './yggstack-conf.js'
 
 export class ConnectError extends Error {
@@ -26,7 +31,7 @@ export interface ConnectResult {
 }
 
 export interface ConnectManagerDeps extends DetectionDeps {
-	spawnProcess?: (binaryPath: string, args: string[]) => ChildProcess
+	spawnProcess?: SpawnProcess
 	confPath?: string
 	runtimeConfPath?: string
 	waitForLocalPort?: (port: number, timeoutMs?: number) => Promise<void>
@@ -114,19 +119,14 @@ export class ConnectManager {
 		const runtimeConf = deps.runtimeConfPath ?? join(YGGL_DIR, 'yggstack.runtime.conf')
 		writeFileSync(runtimeConf, JSON.stringify(merged, null, '\t'), 'utf8')
 
-		const spawnFn =
-			deps.spawnProcess ??
-			((cmd: string, args: string[]) =>
-				spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: false }))
-
+		const spawnFn = createSpawnProcess(deps.spawnProcess)
 		this.proc = spawnFn(binaryPath, [
 			'-useconffile',
 			runtimeConf,
 			'-local-tcp',
 			`${localPort}:[${remoteAddress}]:${remotePort}`,
 		])
-		this.proc.stdout?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
-		this.proc.stderr?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
+		forwardChildOutput(this.proc)
 
 		await waitForForward(localPort)
 
@@ -134,12 +134,6 @@ export class ConnectManager {
 	}
 
 	async stop(): Promise<void> {
-		if (!this.proc) return
-		this.proc.kill('SIGTERM')
-		await new Promise<void>((r) => {
-			this.proc?.once('exit', () => r())
-			setTimeout(r, 5000)
-		})
-		this.proc = null
+		this.proc = await stopChildProcess(this.proc)
 	}
 }

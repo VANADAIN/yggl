@@ -25,28 +25,82 @@ function keepAlive(): Promise<never> {
 	return new Promise<never>(() => {})
 }
 
+function parseAllowKeys(allow?: string): string[] {
+	return allow
+		? allow
+				.split(',')
+				.map((key) => key.trim())
+				.filter(Boolean)
+		: []
+}
+
+function stopSpinner(spinner: Spinner): void {
+	spinner.stop()
+}
+
+function registerSignalCleanup(cleanup: () => Promise<void>): () => void {
+	const exitWithCleanup = () => cleanup().finally(() => process.exit(0))
+	process.once('SIGINT', exitWithCleanup)
+	process.once('SIGTERM', exitWithCleanup)
+	return () => {
+		process.off('SIGINT', exitWithCleanup)
+		process.off('SIGTERM', exitWithCleanup)
+	}
+}
+
+async function withSpinner<T>(message: string, run: (spinner: Spinner) => Promise<T>): Promise<T> {
+	const spinner = new Spinner()
+	try {
+		spinner.start(message)
+		return await run(spinner)
+	} catch (err) {
+		stopSpinner(spinner)
+		throw err
+	}
+}
+
+async function runPersistentCommand(
+	message: string,
+	cleanup: () => Promise<void>,
+	run: () => Promise<void>,
+): Promise<never> {
+	return withSpinner(message, async (spinner) => {
+		const unregister = registerSignalCleanup(async () => {
+			stopSpinner(spinner)
+			await cleanup()
+		})
+
+		try {
+			await run()
+			stopSpinner(spinner)
+		} catch (err) {
+			unregister()
+			stopSpinner(spinner)
+			await cleanup()
+			throw err
+		}
+
+		return keepAlive()
+	})
+}
+
 // ── init ─────────────────────────────────────────────────────────────────────
 
 export async function runInit(configPath = CONFIG_FILENAME): Promise<void> {
-	const spinner = new Spinner()
-	try {
-		spinner.start('Initializing yggl...')
+	await withSpinner('Initializing yggl...', async (spinner) => {
 		writeDefaultConfig(configPath)
 		const config = loadConfig(configPath)
 		const detection = await detectDaemon(config)
 		if (detection.adopted) {
-			spinner.stop()
+			stopSpinner(spinner)
 			throw new Error('A daemon is already running — stop it before running init')
 		}
 		initYggstackConf(detection.binaryPath)
-		spinner.stop()
+		stopSpinner(spinner)
 		console.log(c.green(`✓ Config:  ${resolve(configPath)}`))
 		console.log(c.green(`✓ Keys:    ${resolve(join(YGGL_DIR, 'yggstack.conf'))}`))
 		console.log(c.dim('\nRun `yggl start` to connect to the Yggdrasil network.'))
-	} catch (err) {
-		spinner.stop()
-		throw err
-	}
+	})
 }
 
 // ── start ─────────────────────────────────────────────────────────────────────
@@ -54,21 +108,14 @@ export async function runInit(configPath = CONFIG_FILENAME): Promise<void> {
 export async function runStart(configPath = CONFIG_FILENAME): Promise<never> {
 	const config = loadConfig(configPath)
 	const daemon = new DaemonManager()
-	const spinner = new Spinner()
 
 	const cleanup = async () => {
-		spinner.stop()
 		removePid()
 		if (daemon.source && daemon.source !== 'adopted') await daemon.stop()
 	}
 
-	process.once('SIGINT', () => cleanup().finally(() => process.exit(0)))
-	process.once('SIGTERM', () => cleanup().finally(() => process.exit(0)))
-
-	try {
-		spinner.start('Starting Yggdrasil daemon...')
+	return runPersistentCommand('Starting Yggdrasil daemon...', cleanup, async () => {
 		const source = await daemon.start(config)
-		spinner.stop()
 		writePid()
 
 		const client = new AdminClient(config)
@@ -79,13 +126,7 @@ export async function runStart(configPath = CONFIG_FILENAME): Promise<never> {
 		console.log(`  ${c.dim('Source: ')} ${source}`)
 		if (self.buildName) console.log(`  ${c.dim('Build:  ')} ${self.buildName} ${self.buildVersion}`)
 		console.log(c.dim('\nPress Ctrl+C to stop\n'))
-	} catch (err) {
-		spinner.stop()
-		removePid()
-		throw err
-	}
-
-	return keepAlive()
+	})
 }
 
 // ── share ─────────────────────────────────────────────────────────────────────
@@ -101,33 +142,20 @@ export interface ShareCommandOptions {
 export async function runShare(opts: ShareCommandOptions): Promise<never> {
 	const config = loadConfig(opts.config)
 	const mgr = new ShareManager()
-	const spinner = new Spinner()
-
-	const allowKeys = opts.allow
-		? opts.allow
-				.split(',')
-				.map((k) => k.trim())
-				.filter(Boolean)
-		: []
+	const allowKeys = parseAllowKeys(opts.allow)
 
 	const cleanup = async () => {
-		spinner.stop()
 		removePid()
 		await mgr.stop()
 	}
 
-	process.once('SIGINT', () => cleanup().finally(() => process.exit(0)))
-	process.once('SIGTERM', () => cleanup().finally(() => process.exit(0)))
-
-	try {
-		spinner.start(`Sharing port ${opts.port}...`)
+	return runPersistentCommand(`Sharing port ${opts.port}...`, cleanup, async () => {
 		const result = await mgr.start(config, {
 			port: opts.port,
 			auth: opts.auth,
 			...(opts.token ? { token: opts.token } : {}),
 			allowKeys,
 		})
-		spinner.stop()
 		writePid()
 
 		console.log(c.bold(`\nSharing port ${opts.port} over Yggdrasil\n`))
@@ -140,13 +168,7 @@ export async function runShare(opts: ShareCommandOptions): Promise<never> {
 			console.log(`  ${c.dim('Allow:')} ${allowKeys.join(', ')}`)
 		}
 		console.log(c.dim('\nPress Ctrl+C to stop\n'))
-	} catch (err) {
-		spinner.stop()
-		removePid()
-		throw err
-	}
-
-	return keepAlive()
+	})
 }
 
 // ── connect ───────────────────────────────────────────────────────────────────
@@ -162,31 +184,19 @@ export async function runConnect(opts: ConnectCommandOptions): Promise<never> {
 	const localPort = opts.localPort ?? remotePort
 	const config = loadConfig(opts.config)
 	const mgr = new ConnectManager()
-	const spinner = new Spinner()
 
-	const cleanup = async () => {
-		spinner.stop()
-		await mgr.stop()
-	}
+	return runPersistentCommand(
+		`Connecting to [${address}]:${remotePort}...`,
+		() => mgr.stop(),
+		async () => {
+			const result = await mgr.start(config, { remoteAddress: address, remotePort, localPort })
 
-	process.once('SIGINT', () => cleanup().finally(() => process.exit(0)))
-	process.once('SIGTERM', () => cleanup().finally(() => process.exit(0)))
-
-	try {
-		spinner.start(`Connecting to [${address}]:${remotePort}...`)
-		const result = await mgr.start(config, { remoteAddress: address, remotePort, localPort })
-		spinner.stop()
-
-		console.log(c.bold('\nPort forwarding active\n'))
-		console.log(`  ${c.dim('Local: ')} ${c.cyan(`localhost:${result.localPort}`)}`)
-		console.log(`  ${c.dim('Remote:')} [${address}]:${remotePort}`)
-		console.log(c.dim('\nPress Ctrl+C to stop\n'))
-	} catch (err) {
-		spinner.stop()
-		throw err
-	}
-
-	return keepAlive()
+			console.log(c.bold('\nPort forwarding active\n'))
+			console.log(`  ${c.dim('Local: ')} ${c.cyan(`localhost:${result.localPort}`)}`)
+			console.log(`  ${c.dim('Remote:')} [${address}]:${remotePort}`)
+			console.log(c.dim('\nPress Ctrl+C to stop\n'))
+		},
+	)
 }
 
 // ── status ───────────────────────────────────────────────────────────────────

@@ -1,9 +1,9 @@
 import { EventEmitter } from 'node:events'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { createServer as createNetServer, type Server as NetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AdminClient } from '../admin.js'
 import { DEFAULT_CONFIG } from '../config.js'
 import { ConnectManager } from '../connect.js'
 import { DaemonManager, initYggstackConf } from '../daemon.js'
@@ -32,44 +32,6 @@ class FakeProc extends EventEmitter {
 		setImmediate(() => this.emit('exit'))
 		return true
 	})
-}
-
-function getFreePort(): Promise<number> {
-	return new Promise((resolve, reject) => {
-		const server = createNetServer()
-		server.listen(0, '127.0.0.1', () => {
-			const addr = server.address()
-			if (!addr || typeof addr === 'string') {
-				server.close()
-				reject(new Error('failed to resolve free port'))
-				return
-			}
-			const { port } = addr
-			server.close((err) => (err ? reject(err) : resolve(port)))
-		})
-	})
-}
-
-async function createAdminServer(port: number): Promise<NetServer> {
-	const server = createNetServer((socket) => {
-		socket.on('data', () => {
-			socket.write(
-				`${JSON.stringify({
-					status: 'success',
-					response: {
-						address: '200:aaaa::1',
-						key: 'pubkey',
-						build_name: 'yggstack',
-						build_version: '1.0.5',
-					},
-				})}\n`,
-			)
-			socket.end()
-		})
-	})
-
-	await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', () => resolve()))
-	return server
 }
 
 describe('runtime branches', () => {
@@ -141,7 +103,7 @@ describe('runtime branches', () => {
 		const confPath = join(tmpDir, '.yggl', 'yggstack.conf')
 		const runtimeConfPath = join(tmpDir, '.yggl', 'connect.runtime.conf')
 		writeFileSync(confPath, JSON.stringify(MINIMAL_VALID_CONF))
-		const localPort = await getFreePort()
+		const localPort = 18080
 		const proc = new FakeProc()
 		proc.kill = vi.fn(() => {
 			setImmediate(() => proc.emit('exit'))
@@ -178,18 +140,18 @@ describe('runtime branches', () => {
 		const confPath = join(tmpDir, '.yggl', 'yggstack.conf')
 		const runtimeConfPath = join(tmpDir, '.yggl', 'share.runtime.conf')
 		writeFileSync(confPath, JSON.stringify(MINIMAL_VALID_CONF))
-		const adminPort = await getFreePort()
-		const config = {
-			...DEFAULT_CONFIG,
-			adminSocket: { host: '127.0.0.1', port: adminPort },
-		}
-		const adminServer = await createAdminServer(adminPort)
 		const proc = new FakeProc()
+		const getSelfSpy = vi.spyOn(AdminClient.prototype, 'getSelf').mockResolvedValue({
+			address: '200:aaaa::1',
+			publicKey: 'pubkey',
+			buildName: 'yggstack',
+			buildVersion: '1.0.5',
+		})
 
 		const mgr = new ShareManager()
 		try {
 			const result = await mgr.start(
-				config,
+				DEFAULT_CONFIG,
 				{ port: 3000, allowKeys: ['key1', 'key2'] },
 				{
 					probeAdminSocket: async () => false,
@@ -208,9 +170,10 @@ describe('runtime branches', () => {
 			expect(readFileSync(runtimeConfPath, 'utf8')).toContain('"AllowedPublicKeys": [')
 			expect(readFileSync(runtimeConfPath, 'utf8')).toContain('"key1"')
 			expect(readFileSync(runtimeConfPath, 'utf8')).toContain('"key2"')
+			expect(getSelfSpy).toHaveBeenCalled()
 		} finally {
 			await mgr.stop()
-			await new Promise<void>((resolve) => adminServer.close(() => resolve()))
+			getSelfSpy.mockRestore()
 		}
 
 		expect(proc.kill).toHaveBeenCalledWith('SIGTERM')

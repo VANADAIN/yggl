@@ -1,5 +1,4 @@
 import type { ChildProcess } from 'node:child_process'
-import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
@@ -10,6 +9,12 @@ import { AdminClient } from './admin.js'
 import type { YgglConfig } from './config.js'
 import type { DetectionDeps } from './daemon.js'
 import { detectDaemon, YGGL_DIR, YGGSTACK_CONF } from './daemon.js'
+import {
+	createSpawnProcess,
+	forwardChildOutput,
+	type SpawnProcess,
+	stopChildProcess,
+} from './process-utils.js'
 import { mergeYggstackConfig, parseYggstackConfig } from './yggstack-conf.js'
 
 export class ShareError extends Error {
@@ -34,7 +39,7 @@ export interface ShareResult {
 }
 
 export interface ShareManagerDeps extends DetectionDeps {
-	spawnProcess?: (binaryPath: string, args: string[]) => ChildProcess
+	spawnProcess?: SpawnProcess
 	confPath?: string
 	runtimeConfPath?: string
 	waitForAdminSocket?: (host: string, port: number, timeoutMs?: number) => Promise<void>
@@ -185,19 +190,14 @@ export class ShareManager {
 			localPort = await proxyListen(this.proxyServer)
 		}
 
-		const spawnFn =
-			deps.spawnProcess ??
-			((cmd: string, args: string[]) =>
-				spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: false }))
-
+		const spawnFn = createSpawnProcess(deps.spawnProcess)
 		this.proc = spawnFn(binaryPath, [
 			'-useconffile',
 			runtimeConf,
 			'-remote-tcp',
 			`${port}:127.0.0.1:${localPort}`,
 		])
-		this.proc.stdout?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
-		this.proc.stderr?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
+		forwardChildOutput(this.proc)
 
 		await waitForAdmin(config.adminSocket.host, config.adminSocket.port)
 		const adminClient = new AdminClient(config)
@@ -216,13 +216,6 @@ export class ShareManager {
 			await new Promise<void>((r) => this.proxyServer?.close(() => r()))
 			this.proxyServer = null
 		}
-		if (this.proc) {
-			this.proc.kill('SIGTERM')
-			await new Promise<void>((r) => {
-				this.proc?.once('exit', () => r())
-				setTimeout(r, 5000)
-			})
-			this.proc = null
-		}
+		this.proc = await stopChildProcess(this.proc)
 	}
 }

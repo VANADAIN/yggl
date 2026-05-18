@@ -1,10 +1,16 @@
 import type { ChildProcess } from 'node:child_process'
-import { execSync, spawn } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { join, resolve } from 'node:path'
 import { resolveBinary } from './binary.js'
 import type { YgglConfig } from './config.js'
+import {
+	createSpawnProcess,
+	forwardChildOutput,
+	type SpawnProcess,
+	stopChildProcess,
+} from './process-utils.js'
 import { mergeYggstackConfig, parseYggstackConfig } from './yggstack-conf.js'
 
 export const YGGL_DIR = '.yggl'
@@ -106,7 +112,15 @@ export async function detectDaemon(
 }
 
 export interface DaemonManagerDeps extends DetectionDeps {
-	spawnProcess?: (binaryPath: string, args: string[]) => ChildProcess
+	spawnProcess?: SpawnProcess
+}
+
+function mapDetectionSourceToDaemonSource(
+	source: Exclude<DetectionResult, { adopted: true }>['source'],
+): Exclude<DaemonSource, 'adopted'> {
+	if (source === 'bundled') return 'spawned-bundled'
+	if (source === 'system-yggstack') return 'spawned-system'
+	return 'spawned-custom'
 }
 
 export class DaemonManager {
@@ -150,26 +164,15 @@ export class DaemonManager {
 		}
 		const binaryPath = detection.binaryPath
 
-		const spawnFn =
-			deps.spawnProcess ??
-			((cmd: string, args: string[]) =>
-				spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: false }))
-
+		const spawnFn = createSpawnProcess(deps.spawnProcess)
 		this.proc = spawnFn(binaryPath, ['-useconffile', runtimeConf])
-
-		this.proc.stdout?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
-		this.proc.stderr?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
+		forwardChildOutput(this.proc)
 
 		await this.waitForSocket(config)
 
-		const src =
-			detection.source === 'bundled'
-				? 'spawned-bundled'
-				: detection.source === 'system-yggstack'
-					? 'spawned-system'
-					: 'spawned-custom'
-		this._source = src as DaemonSource
-		return src as DaemonSource
+		const source = mapDetectionSourceToDaemonSource(detection.source)
+		this._source = source
+		return source
 	}
 
 	async stop(): Promise<void> {
@@ -181,12 +184,7 @@ export class DaemonManager {
 		}
 		if (!this.proc) return
 
-		this.proc.kill('SIGTERM')
-		await new Promise<void>((resolve) => {
-			this.proc?.once('exit', () => resolve())
-			setTimeout(resolve, 5000)
-		})
-		this.proc = null
+		this.proc = await stopChildProcess(this.proc)
 		this._source = null
 	}
 
