@@ -34,8 +34,8 @@ describe('resolveStorageRoots', () => {
 			},
 		})
 
-		expect(roots.configRoot).toBe('/tmp/xdg-config/yggl')
-		expect(roots.stateRoot).toBe('/tmp/xdg-state/yggl')
+		expect(roots.configRoot).toBe(join('/tmp/xdg-config', 'yggl'))
+		expect(roots.stateRoot).toBe(join('/tmp/xdg-state', 'yggl'))
 	})
 
 	it('uses Application Support on macOS', () => {
@@ -45,8 +45,8 @@ describe('resolveStorageRoots', () => {
 			env: {},
 		})
 
-		expect(roots.configRoot).toBe('/Users/tester/Library/Application Support/yggl')
-		expect(roots.stateRoot).toBe('/Users/tester/Library/Application Support/yggl')
+		expect(roots.configRoot).toBe(join('/Users/tester', 'Library', 'Application Support', 'yggl'))
+		expect(roots.stateRoot).toBe(join('/Users/tester', 'Library', 'Application Support', 'yggl'))
 	})
 
 	it('uses LOCALAPPDATA on Windows', () => {
@@ -56,8 +56,8 @@ describe('resolveStorageRoots', () => {
 			env: { LOCALAPPDATA: 'C:\\Users\\tester\\AppData\\Local' },
 		})
 
-		expect(roots.configRoot).toBe('C:\\Users\\tester\\AppData\\Local/yggl')
-		expect(roots.stateRoot).toBe('C:\\Users\\tester\\AppData\\Local/yggl')
+		expect(roots.configRoot).toBe(join('C:\\Users\\tester\\AppData\\Local', 'yggl'))
+		expect(roots.stateRoot).toBe(join('C:\\Users\\tester\\AppData\\Local', 'yggl'))
 	})
 })
 
