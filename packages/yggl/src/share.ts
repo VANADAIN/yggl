@@ -36,6 +36,7 @@ export interface ShareResult {
 export interface ShareManagerDeps extends DetectionDeps {
 	spawnProcess?: (binaryPath: string, args: string[]) => ChildProcess
 	confPath?: string
+	runtimeConfPath?: string
 }
 
 export function generateToken(): string {
@@ -173,7 +174,7 @@ export class ShareManager {
 		const merged = mergeYggstackConfig(base, config)
 		if (allowKeys.length > 0) merged.AllowedPublicKeys = allowKeys
 
-		const runtimeConf = join(YGGL_DIR, 'yggstack.runtime.conf')
+		const runtimeConf = deps.runtimeConfPath ?? join(YGGL_DIR, 'yggstack.runtime.conf')
 		writeFileSync(runtimeConf, JSON.stringify(merged, null, '\t'), 'utf8')
 
 		let localPort = port

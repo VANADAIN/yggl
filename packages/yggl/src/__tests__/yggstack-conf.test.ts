@@ -9,6 +9,7 @@ import {
 
 const MINIMAL_VALID: YggstackConfig = {
 	Peers: [],
+	Listen: [],
 	InterfacePeers: {},
 	AllowedPublicKeys: [],
 	PublicKey: 'abc',
@@ -48,6 +49,7 @@ describe('parseYggstackConfig', () => {
 		const raw = { PrivateKey: MINIMAL_VALID.PrivateKey }
 		const parsed = parseYggstackConfig(JSON.stringify(raw))
 		expect(parsed.Peers).toEqual([])
+		expect(parsed.Listen).toEqual([])
 		expect(parsed.InterfacePeers).toEqual({})
 		expect(parsed.IfName).toBe('auto')
 		expect(parsed.IfMTU).toBe(65535)
@@ -88,5 +90,11 @@ describe('mergeYggstackConfig', () => {
 		const merged = mergeYggstackConfig(MINIMAL_VALID, DEFAULT_CONFIG)
 		expect(merged.PrivateKey).toBe(MINIMAL_VALID.PrivateKey)
 		expect(merged.IfMTU).toBe(MINIMAL_VALID.IfMTU)
+	})
+
+	it('preserves Listen from base', () => {
+		const base = { ...MINIMAL_VALID, Listen: ['tcp://127.0.0.1:12345'] }
+		const merged = mergeYggstackConfig(base, DEFAULT_CONFIG)
+		expect(merged.Listen).toEqual(['tcp://127.0.0.1:12345'])
 	})
 })

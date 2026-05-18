@@ -11,6 +11,7 @@ export interface MulticastInterface {
 
 export interface YggstackConfig {
 	Peers: string[]
+	Listen: string[]
 	InterfacePeers: Record<string, string[]>
 	AllowedPublicKeys: string[]
 	PublicKey: string
@@ -62,6 +63,7 @@ export function parseYggstackConfig(raw: string): YggstackConfig {
 
 	return {
 		Peers: Array.isArray(r.Peers) ? (r.Peers as string[]) : [],
+		Listen: Array.isArray(r.Listen) ? (r.Listen as string[]) : [],
 		InterfacePeers:
 			typeof r.InterfacePeers === 'object' && r.InterfacePeers !== null
 				? (r.InterfacePeers as Record<string, string[]>)
