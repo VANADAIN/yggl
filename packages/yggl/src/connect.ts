@@ -29,6 +29,7 @@ export interface ConnectManagerDeps extends DetectionDeps {
 	spawnProcess?: (binaryPath: string, args: string[]) => ChildProcess
 	confPath?: string
 	runtimeConfPath?: string
+	waitForLocalPort?: (port: number, timeoutMs?: number) => Promise<void>
 }
 
 export function parseConnectTarget(target: string): { address: string; port: number } {
@@ -91,6 +92,7 @@ export class ConnectManager {
 		deps: ConnectManagerDeps = {},
 	): Promise<ConnectResult> {
 		const { remoteAddress, remotePort, localPort = remotePort } = options
+		const waitForForward = deps.waitForLocalPort ?? waitForLocalPort
 
 		const detection = await detectDaemon(config, deps)
 		if (detection.adopted) {
@@ -126,7 +128,7 @@ export class ConnectManager {
 		this.proc.stdout?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
 		this.proc.stderr?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
 
-		await waitForLocalPort(localPort)
+		await waitForForward(localPort)
 
 		return { localPort }
 	}

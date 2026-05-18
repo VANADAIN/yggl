@@ -37,6 +37,7 @@ export interface ShareManagerDeps extends DetectionDeps {
 	spawnProcess?: (binaryPath: string, args: string[]) => ChildProcess
 	confPath?: string
 	runtimeConfPath?: string
+	waitForAdminSocket?: (host: string, port: number, timeoutMs?: number) => Promise<void>
 }
 
 export function generateToken(): string {
@@ -154,6 +155,7 @@ export class ShareManager {
 	): Promise<ShareResult> {
 		const { port, auth = false, allowKeys = [] } = options
 		const token = auth ? (options.token ?? generateToken()) : undefined
+		const waitForAdmin = deps.waitForAdminSocket ?? waitForAdminSocket
 
 		const detection = await detectDaemon(config, deps)
 		if (detection.adopted) {
@@ -197,7 +199,7 @@ export class ShareManager {
 		this.proc.stdout?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
 		this.proc.stderr?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
 
-		await waitForAdminSocket(config.adminSocket.host, config.adminSocket.port)
+		await waitForAdmin(config.adminSocket.host, config.adminSocket.port)
 		const adminClient = new AdminClient(config)
 		const self = await adminClient.getSelf()
 
