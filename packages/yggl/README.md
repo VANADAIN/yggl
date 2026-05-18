@@ -17,7 +17,7 @@ Built on [Yggdrasil](https://yggdrasil-network.github.io/) — every node gets a
 # 1. Install
 npm install -g yggl
 
-# 2. Initialize (creates yggl.config.json and generates a node identity)
+# 2. Initialize (creates yggl.config.json)
 yggl init
 
 # 3. Share a local port
@@ -52,13 +52,13 @@ yggl bundles a [yggstack](https://github.com/yggdrasil-network/yggstack) binary 
 
 ### `yggl init`
 
-Generate `yggl.config.json` and create a Yggdrasil node identity in `.yggl/`.
+Generate `yggl.config.json` for the current project.
 
 ```sh
 yggl init
 ```
 
-Run this once per project directory (or once globally if you prefer a single identity).
+Identity and runtime state are created automatically outside the project tree on first use.
 
 ---
 
@@ -96,6 +96,12 @@ Teammates can reach `localhost:3000` on your machine at that URL, or via `yggl c
 | `--allow <key>[,<key>...]` | Restrict access to specific Yggdrasil public keys (network-layer, works for any protocol). |
 
 **Auth modes** are composable — `--auth --allow` requires both a valid token and a permitted source key.
+
+If you use `--auth` often, you can set a machine-local default token:
+
+```sh
+yggl local set auth-token my-shared-token
+```
 
 ---
 
@@ -147,6 +153,33 @@ Stop a daemon started by `yggl start`.
 yggl stop
 ```
 
+### `yggl local`
+
+Manage machine-local values for the current project. These values are stored outside your repo.
+
+```sh
+yggl local set auth-token my-shared-token
+yggl local get auth-token
+yggl local get auth-token --show-secret
+yggl local unset auth-token
+yggl local list
+```
+
+Supported keys:
+
+| Key | Description |
+|-----|-------------|
+| `auth-token` | Default bearer token for `yggl share --auth` in this project |
+| `identity-mode` | `global` or `project` identity selection |
+
+### `yggl doctor`
+
+Show effective config paths, local storage paths, identity mode, and token source.
+
+```sh
+yggl doctor
+```
+
 ---
 
 ## Config reference
@@ -159,8 +192,7 @@ yggl stop
   "peers": [],
   "autoDiscover": true,
   "auth": {
-    "enabled": false,
-    "token": ""
+    "enabled": false
   },
   "adminSocket": {
     "host": "localhost",
@@ -193,7 +225,7 @@ Set to `[]` to use the built-in defaults.
 
 **`autoDiscover`** — enable link-local multicast peer discovery (`true` by default). Useful for finding teammates on the same LAN without any peer URIs.
 
-**`auth.enabled`** / **`auth.token`** — global auth defaults used by `yggl share` when `--auth` is passed without `--token`. You can pre-configure a token here instead of passing it on the command line.
+**`auth.enabled`** — enable bearer-token auth by default for `yggl share` in this project. The token itself is not stored in `yggl.config.json`; use `--token`, `YGGL_AUTH_TOKEN`, or `yggl local set auth-token`.
 
 **`adminSocket`** — host and port of the Yggdrasil admin API (`localhost:9001` by default). Change this if port 9001 is taken.
 
@@ -205,7 +237,7 @@ All config fields can be overridden with environment variables:
 |----------|-------|
 | `YGGL_DAEMON` | `daemon` |
 | `YGGL_PEERS` | `peers` (comma-separated) |
-| `YGGL_AUTH_TOKEN` | `auth.token` (also sets `auth.enabled = true`) |
+| `YGGL_AUTH_TOKEN` | Bearer token used by `yggl share --auth` |
 | `YGGL_ADMIN_HOST` | `adminSocket.host` |
 | `YGGL_ADMIN_PORT` | `adminSocket.port` |
 
@@ -229,6 +261,13 @@ curl -H "Authorization: Bearer xK9mP2..." http://localhost:3000/api/hello
 A thin HTTP proxy sits in front of the shared port and checks the `Authorization` header. Returns `401` on missing or invalid token. WebSocket upgrades are supported.
 
 Best for one-off HTTP shares — just send a URL and a token.
+
+For repeat local use on one machine, set a project-local token once:
+
+```sh
+yggl local set auth-token my-shared-token
+yggl share 3000 --auth
+```
 
 ### Public key allowlist (`--allow`)
 
@@ -266,7 +305,7 @@ yggl probes `adminSocket` (default `localhost:9001`) at startup. If something re
 ## Troubleshooting
 
 **`yggstack config not found — run yggl init`**
-Run `yggl init` in the directory where you run yggl commands. A `.yggl/` folder will be created there.
+Run `yggl init` in the directory where you run yggl commands. Identity and runtime state are stored outside the project tree and will be created automatically on first use.
 
 **`Binary not found` / `Bundled yggstack not found`**
 The platform package wasn't installed. Re-install yggl with npm/pnpm — optional dependencies include the binary for your platform.
