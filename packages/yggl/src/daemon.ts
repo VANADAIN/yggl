@@ -76,7 +76,7 @@ export async function detectDaemon(
 	if (config.daemon !== 'auto') {
 		const binaryPath = resolveBinary(config.daemon, {
 			...(deps.findBundled ? { findBundled: deps.findBundled } : {}),
-			...(deps.findInPath ? { findInPath: () => deps.findInPath!('yggstack') ?? null } : {}),
+			...(deps.findInPath ? { findInPath: () => deps.findInPath?.('yggstack') ?? null } : {}),
 		})
 		const source: Extract<DetectionResult, { adopted: false }>['source'] =
 			config.daemon === 'bundled'

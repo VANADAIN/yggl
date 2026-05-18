@@ -12,7 +12,7 @@ app.get('/api/hello', (req, res) => {
 	})
 })
 
-app.get('/api/items', (req, res) => {
+app.get('/api/items', (_req, res) => {
 	res.json([
 		{ id: 1, name: 'Widget' },
 		{ id: 2, name: 'Gadget' },

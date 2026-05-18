@@ -46,6 +46,7 @@ docs-internal/
 
 # Runtime daemon data (keys, generated configs)
 .yggl/
+packages/yggl/yggl.config.json
 
 # OS
 .DS_Store
