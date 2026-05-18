@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createNetServer, type Server as NetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -91,13 +91,7 @@ describe('runtime branches', () => {
 
 	it('DaemonManager.start writes runtime config, maps bundled source, and stop kills proc', async () => {
 		writeFileSync(join(tmpDir, '.yggl', 'yggstack.conf'), JSON.stringify(MINIMAL_VALID_CONF))
-		const fakeBinary = join(tmpDir, 'fake-yggstack.sh')
-		writeFileSync(
-			fakeBinary,
-			'#!/bin/sh\ntrap "exit 0" TERM INT\nwhile :; do sleep 1; done\n',
-			'utf8',
-		)
-		chmodSync(fakeBinary, 0o755)
+		const proc = new FakeProc()
 
 		const mgr = new DaemonManager()
 		;(mgr.isRunning as unknown as ReturnType<typeof vi.fn>) = vi.fn(async () => false)
@@ -105,7 +99,17 @@ describe('runtime branches', () => {
 			async () => {},
 		)
 
-		const source = await mgr.start({ ...DEFAULT_CONFIG, daemon: fakeBinary })
+		const source = await mgr.start(
+			{ ...DEFAULT_CONFIG, daemon: '/fake/yggstack' },
+			{
+				probeAdminSocket: async () => false,
+				findInPath: () => null,
+				findBundled: () => null,
+				fileExists: () => true,
+				isExecutable: () => true,
+				spawnProcess: () => proc as never,
+			},
+		)
 
 		expect(source).toBe('spawned-custom')
 		expect(mgr.source).toBe('spawned-custom')
@@ -124,17 +128,13 @@ describe('runtime branches', () => {
 	})
 
 	it('initYggstackConf writes generated config and rejects overwrite', () => {
-		const fakeBinary = join(tmpDir, 'genconf.sh')
-		writeFileSync(
-			fakeBinary,
-			'#!/bin/sh\nif [ "$1" = "-genconf" ] && [ "$2" = "-json" ]; then echo \'{"PrivateKey":"abc"}\'; fi\n',
-			'utf8',
-		)
-		chmodSync(fakeBinary, 0o755)
+		const fakeGenconf = () => Buffer.from('{"PrivateKey":"abc"}')
 
-		initYggstackConf(fakeBinary)
+		initYggstackConf('/fake/yggstack', { runGenconf: fakeGenconf })
 		expect(readFileSync(join(tmpDir, '.yggl', 'yggstack.conf'), 'utf8')).toContain('"PrivateKey"')
-		expect(() => initYggstackConf(fakeBinary)).toThrow('already exists')
+		expect(() => initYggstackConf('/fake/yggstack', { runGenconf: fakeGenconf })).toThrow(
+			'already exists',
+		)
 	})
 
 	it('ConnectManager.start writes runtime config, waits for local port, and stop kills proc', async () => {

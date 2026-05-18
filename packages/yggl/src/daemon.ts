@@ -23,6 +23,8 @@ export interface DetectionDeps {
 	probeAdminSocket?: (host: string, port: number) => Promise<boolean>
 	findInPath?: (cmd: string) => string | null
 	findBundled?: (pkgName: string, binaryName: string) => string | null
+	fileExists?: (p: string) => boolean
+	isExecutable?: (p: string) => boolean
 }
 
 function defaultProbeAdminSocket(host: string, port: number): Promise<boolean> {
@@ -77,6 +79,8 @@ export async function detectDaemon(
 		const binaryPath = resolveBinary(config.daemon, {
 			...(deps.findBundled ? { findBundled: deps.findBundled } : {}),
 			...(deps.findInPath ? { findInPath: () => deps.findInPath?.('yggstack') ?? null } : {}),
+			...(deps.fileExists ? { fileExists: deps.fileExists } : {}),
+			...(deps.isExecutable ? { isExecutable: deps.isExecutable } : {}),
 		})
 		const source: Extract<DetectionResult, { adopted: false }>['source'] =
 			config.daemon === 'bundled'
@@ -101,6 +105,10 @@ export async function detectDaemon(
 	return { adopted: false, binaryPath: bundled, source: 'bundled' }
 }
 
+export interface DaemonManagerDeps extends DetectionDeps {
+	spawnProcess?: (binaryPath: string, args: string[]) => ChildProcess
+}
+
 export class DaemonManager {
 	private proc: ChildProcess | null = null
 	private _source: DaemonSource | null = null
@@ -113,7 +121,7 @@ export class DaemonManager {
 		return defaultProbeAdminSocket(config.adminSocket.host, config.adminSocket.port)
 	}
 
-	async start(config: YgglConfig): Promise<DaemonSource> {
+	async start(config: YgglConfig, deps: DaemonManagerDeps = {}): Promise<DaemonSource> {
 		// Already running externally — adopt it
 		const running = await this.isRunning(config)
 		if (running) {
@@ -135,24 +143,22 @@ export class DaemonManager {
 		writeFileSync(runtimeConf, JSON.stringify(merged, null, '\t'), 'utf8')
 
 		// Resolve binary
-		const detection = await detectDaemon(config)
+		const detection = await detectDaemon(config, deps)
 		if (detection.adopted) {
 			this._source = 'adopted'
 			return 'adopted'
 		}
 		const binaryPath = detection.binaryPath
 
-		this.proc = spawn(binaryPath, ['-useconffile', runtimeConf], {
-			stdio: ['ignore', 'pipe', 'pipe'],
-			detached: false,
-		})
+		const spawnFn =
+			deps.spawnProcess ??
+			((cmd: string, args: string[]) =>
+				spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: false }))
 
-		this.proc.stdout?.on('data', (data: Buffer) => {
-			process.stderr.write(`[yggstack] ${data}`)
-		})
-		this.proc.stderr?.on('data', (data: Buffer) => {
-			process.stderr.write(`[yggstack] ${data}`)
-		})
+		this.proc = spawnFn(binaryPath, ['-useconffile', runtimeConf])
+
+		this.proc.stdout?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
+		this.proc.stderr?.on('data', (data: Buffer) => process.stderr.write(`[yggstack] ${data}`))
 
 		await this.waitForSocket(config)
 
@@ -203,14 +209,19 @@ export class DaemonManager {
 	}
 }
 
-export function initYggstackConf(binaryPath: string): void {
+export interface InitYggstackConfDeps {
+	runGenconf?: (binaryPath: string) => Buffer
+}
+
+export function initYggstackConf(binaryPath: string, deps: InitYggstackConfDeps = {}): void {
 	mkdirSync(YGGL_DIR, { recursive: true })
 	const confPath = resolve(YGGSTACK_CONF)
 	if (existsSync(confPath)) {
 		throw new DaemonError(`yggstack config already exists at ${confPath}`)
 	}
-	const raw = execSync(`"${binaryPath}" -genconf -json`, {
-		stdio: ['ignore', 'pipe', 'ignore'],
-	})
+	const runGenconf =
+		deps.runGenconf ??
+		((p: string) => execSync(`"${p}" -genconf -json`, { stdio: ['ignore', 'pipe', 'ignore'] }))
+	const raw = runGenconf(binaryPath)
 	writeFileSync(confPath, raw.toString(), 'utf8')
 }
