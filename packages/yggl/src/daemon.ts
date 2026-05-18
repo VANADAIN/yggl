@@ -72,13 +72,22 @@ export async function detectDaemon(
 		return { adopted: true, binaryPath: null, source: 'adopted' }
 	}
 
-	// 2. system yggdrasil (requires root — just detect, warn at CLI layer)
-	const sysYggdrasil = findInPath('yggdrasil')
-	if (sysYggdrasil) {
-		return { adopted: false, binaryPath: sysYggdrasil, source: 'system-yggdrasil' }
+	// If daemon mode is explicitly configured, skip auto-detection
+	if (config.daemon !== 'auto') {
+		const binaryPath = resolveBinary(config.daemon, {
+			...(deps.findBundled ? { findBundled: deps.findBundled } : {}),
+			...(deps.findInPath ? { findInPath: () => deps.findInPath!('yggstack') ?? null } : {}),
+		})
+		const source: Extract<DetectionResult, { adopted: false }>['source'] =
+			config.daemon === 'bundled'
+				? 'bundled'
+				: config.daemon === 'system'
+					? 'system-yggstack'
+					: 'system-yggdrasil'
+		return { adopted: false, binaryPath, source }
 	}
 
-	// 3. system yggstack
+	// 2. system yggstack
 	const sysYggstack = findInPath('yggstack')
 	if (sysYggstack) {
 		return { adopted: false, binaryPath: sysYggstack, source: 'system-yggstack' }

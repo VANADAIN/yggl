@@ -23,15 +23,18 @@ describe('detectDaemon', () => {
 		expect(result.source).toBe('adopted')
 	})
 
-	it('returns system-yggdrasil when yggdrasil found in PATH', async () => {
+	it('ignores system yggdrasil in PATH and falls through to bundled', async () => {
 		const result = await detectDaemon(
 			DEFAULT_CONFIG,
-			makeDeps({ findInPath: (cmd) => (cmd === 'yggdrasil' ? '/usr/bin/yggdrasil' : null) }),
+			makeDeps({
+				findInPath: (cmd) => (cmd === 'yggdrasil' ? '/usr/bin/yggdrasil' : null),
+				findBundled: () => '/bundled/yggstack',
+			}),
 		)
 		expect(result.adopted).toBe(false)
 		if (!result.adopted) {
-			expect(result.source).toBe('system-yggdrasil')
-			expect(result.binaryPath).toBe('/usr/bin/yggdrasil')
+			expect(result.source).toBe('bundled')
+			expect(result.binaryPath).toBe('/bundled/yggstack')
 		}
 	})
 
