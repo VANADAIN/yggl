@@ -13,6 +13,8 @@ export {
 	validateConfig,
 	writeDefaultConfig,
 } from './config.js'
+export type { ConnectManagerDeps, ConnectOptions, ConnectResult } from './connect.js'
+export { ConnectError, ConnectManager, parseConnectTarget } from './connect.js'
 export type { DaemonSource, DetectionDeps, DetectionResult } from './daemon.js'
 export {
 	DaemonError,
@@ -22,6 +24,8 @@ export {
 	YGGL_DIR,
 	YGGSTACK_CONF,
 } from './daemon.js'
+export type { ShareManagerDeps, ShareOptions, ShareResult } from './share.js'
+export { createTokenProxy, generateToken, ShareError, ShareManager } from './share.js'
 export type { MulticastInterface, YggstackConfig } from './yggstack-conf.js'
 export {
 	DEFAULT_MULTICAST_INTERFACE,
