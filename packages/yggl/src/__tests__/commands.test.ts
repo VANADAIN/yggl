@@ -119,7 +119,7 @@ describe('runPeersList', () => {
 
 		await runPeersList(configPath)
 
-		expect(lines.some((l) => l.includes(DEFAULT_PEERS[0]))).toBe(true)
+		expect(lines.some((l) => l.includes(DEFAULT_PEERS[0] ?? ''))).toBe(true)
 	})
 })
 

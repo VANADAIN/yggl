@@ -76,13 +76,14 @@ describe('AdminClient.getPeers', () => {
 		)
 		const peers = await client.getPeers()
 		expect(peers).toHaveLength(1)
-		expect(peers[0].address).toBe('200:aaaa::1')
-		expect(peers[0].publicKey).toBe('peer1key')
-		expect(peers[0].remote).toBe('tls://example.com:443')
-		expect(peers[0].uptime).toBe(120.5)
-		expect(peers[0].rxBytes).toBe(1000)
-		expect(peers[0].txBytes).toBe(2000)
-		expect(peers[0].latency).toBe(15.3)
+		const peer = peers[0]!
+		expect(peer.address).toBe('200:aaaa::1')
+		expect(peer.publicKey).toBe('peer1key')
+		expect(peer.remote).toBe('tls://example.com:443')
+		expect(peer.uptime).toBe(120.5)
+		expect(peer.rxBytes).toBe(1000)
+		expect(peer.txBytes).toBe(2000)
+		expect(peer.latency).toBe(15.3)
 	})
 
 	it('returns empty array when peers list is empty', async () => {
@@ -104,9 +105,10 @@ describe('AdminClient.getPeers', () => {
 			makeDeps({ status: 'success', response: { peers: [{ address: '200::1', key: 'k' }] } }),
 		)
 		const peers = await client.getPeers()
-		expect(peers[0].uptime).toBe(0)
-		expect(peers[0].rxBytes).toBe(0)
-		expect(peers[0].latency).toBe(0)
+		const peer = peers[0]!
+		expect(peer.uptime).toBe(0)
+		expect(peer.rxBytes).toBe(0)
+		expect(peer.latency).toBe(0)
 	})
 })
 
@@ -131,11 +133,12 @@ describe('AdminClient.getSessions', () => {
 		)
 		const sessions = await client.getSessions()
 		expect(sessions).toHaveLength(1)
-		expect(sessions[0].address).toBe('200:bbbb::1')
-		expect(sessions[0].publicKey).toBe('sess1key')
-		expect(sessions[0].uptime).toBe(60.0)
-		expect(sessions[0].rxBytes).toBe(500)
-		expect(sessions[0].txBytes).toBe(800)
+		const session = sessions[0]!
+		expect(session.address).toBe('200:bbbb::1')
+		expect(session.publicKey).toBe('sess1key')
+		expect(session.uptime).toBe(60.0)
+		expect(session.rxBytes).toBe(500)
+		expect(session.txBytes).toBe(800)
 	})
 
 	it('returns empty array when no sessions', async () => {
