@@ -22,6 +22,8 @@
 		"build": "tsup",
 		"dev": "tsup --watch",
 		"test": "vitest run",
+		"test:coverage": "vitest run --coverage",
+		"test:coverage:integration": "vitest run --config vitest.integration.config.ts --coverage",
 		"test:integration": "vitest run --config vitest.integration.config.ts",
 		"test:watch": "vitest",
 		"lint": "tsc --noEmit"
