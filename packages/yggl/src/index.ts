@@ -1,4 +1,6 @@
 export const version = '0.1.0'
+export type { AdminClientDeps, PeerInfo, SelfInfo, SessionInfo } from './admin.js'
+export { AdminClient, AdminError } from './admin.js'
 export type { BinaryResolverDeps, DaemonMode } from './binary.js'
 export { BinaryNotFoundError, resolveBinary } from './binary.js'
 export type { AdminSocketConfig, AuthConfig, YgglConfig } from './config.js'
