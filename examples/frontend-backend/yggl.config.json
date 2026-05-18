@@ -1,0 +1,13 @@
+{
+	"daemon": "auto",
+	"peers": [],
+	"autoDiscover": true,
+	"auth": {
+		"enabled": false,
+		"token": ""
+	},
+	"adminSocket": {
+		"host": "localhost",
+		"port": 9001
+	}
+}
