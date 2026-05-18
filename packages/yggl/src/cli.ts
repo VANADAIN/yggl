@@ -16,7 +16,7 @@ import {
 import { CONFIG_FILENAME } from './config.js'
 import { c } from './ui.js'
 
-function guard(fn: () => Promise<void>): () => Promise<void> {
+export function guard(fn: () => Promise<void>): () => Promise<void> {
 	return async () => {
 		try {
 			await fn()
@@ -35,7 +35,7 @@ const configArg = {
 	},
 }
 
-const main = defineCommand({
+export const main = defineCommand({
 	meta: {
 		name: 'yggl',
 		version: '0.1.0',
