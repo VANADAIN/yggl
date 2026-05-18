@@ -6,7 +6,7 @@ export default defineConfig({
 		cli: 'src/cli.ts',
 	},
 	format: ['esm', 'cjs'],
-	dts: true,
+	dts: { entry: { index: 'src/index.ts' } },
 	clean: true,
 	target: 'node22',
 	shims: true,
